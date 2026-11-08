@@ -206,9 +206,17 @@ class Aladin_co_kr(Source):
     
     def identify(self, log, result_queue, abort, title=None, authors=None, identifiers={}, timeout=30):
         """
-        Note this method will retry without identifiers automatically if no
-        match is found with identifiers.
+        Identify candidates while keeping the requested ISBN edition constraint.
         """
+        if abort.is_set() or timeout <= 0:
+            return
+        from calibre_plugins.aladin_co_kr.request_budget import RequestBudget
+        from calibre_plugins.aladin_co_kr.text_cleaner import decode_html
+        budget = RequestBudget(abort, timeout)
+        identifiers = identifiers or {}
+        if identifiers.get('isbn') and not check_isbn(identifiers['isbn']):
+            log.error('조건 불일치: 유효하지 않은 ISBN입니다.')
+            return
         query = ''
         matches = []
         # Unlike the other metadata sources, if we have a aladin id then we
@@ -228,17 +236,17 @@ class Aladin_co_kr(Source):
                 return
             try:
                 log.info('Querying: %s' % query)
-                response = br.open_novisit(query, timeout=timeout)
+                raw, _ = budget.read(br, query)
                 
                 try:
-                    raw = self._read_response_html(response)
+                    raw = decode_html(raw)
                     # open('E:\\t11.html', 'wb').write(raw) # XXXX
                     if not raw:
-                        log.error('Failed to get raw result for query: %r' % query)
+                        log.error('접속 실패: 빈 검색 응답: %r' % query)
                         return
                     root = fromstring(clean_ascii_chars(raw))
                 except:
-                    msg = 'Failed to parse aladin page for query: %r' % query
+                    msg = '페이지 구조 변경: 검색 응답 파싱 실패: %r' % query
                     log.exception(msg)
                     return msg
                 
@@ -259,16 +267,16 @@ class Aladin_co_kr(Source):
                         if ajax_query:
                             log.info('No results in search page, querying AJAX search: %s' % ajax_query)
                             try:
-                                response = br.open_novisit(ajax_query, timeout=timeout)
-                                raw = self._read_response_html(response)
+                                raw, _ = budget.read(br, ajax_query)
+                                raw = decode_html(raw)
                                 if raw:
                                     root = fromstring(clean_ascii_chars(raw))
                                     self._parse_search_results(log, title, authors, root, matches, timeout)
                             except:
-                                log.exception('Failed to parse aladin AJAX search page for query: %r' % ajax_query)
+                                log.exception('접속 또는 페이지 구조 확인: AJAX 검색 실패: %r' % ajax_query)
             
             except Exception as e:
-                err = 'Failed to make identify query: %r' % query
+                err = '접속 실패: 검색 요청 실패: %r' % query
                 log.exception(err)
                 return as_unicode(e)
         
@@ -276,24 +284,28 @@ class Aladin_co_kr(Source):
             return
         
         if not matches:
-            if identifiers and title and authors:
+            if identifiers and title and authors and not isbn:
                 log.info('No matches found with identifiers, retrying using only title and authors')
-                return self.identify(log, result_queue, abort, title=title, authors=authors, timeout=timeout)
-            log.error('No matches found with query: %r' % query)
+                return self.identify(log, result_queue, abort, title=title, authors=authors, timeout=max(0, budget.deadline - time.monotonic()))
+            log.info('책 없음 또는 조건 불일치: 허용할 검색 후보가 없습니다: %r' % query)
             return
         
         from calibre_plugins.aladin_co_kr.worker import Worker
-        workers = [Worker(url, result_queue, br, log, i, self) for i, url in enumerate(matches)]
+        workers = [Worker(url, result_queue, br, log, i, self, timeout=timeout,
+                          requested_title=title, requested_authors=authors, requested_isbn=isbn, budget=budget)
+                   for i, url in enumerate(dict.fromkeys(matches))]
         
         for w in workers:
+            if not budget.active():
+                return
             w.start()
             # Don't send all requests at the same time
-            time.sleep(0.1)
+            abort.wait(min(0.1, max(0, budget.deadline - time.monotonic())))
         
-        while not abort.is_set():
+        while budget.active():
             a_worker_is_alive = False
             for w in workers:
-                w.join(0.2)
+                w.join(min(0.2, max(0, budget.deadline - time.monotonic())))
                 if abort.is_set():
                     break
                 if w.is_alive():
@@ -347,39 +359,19 @@ class Aladin_co_kr(Source):
                 break
     
     def _parse_search_results(self, log, orig_title, orig_authors, root, matches, timeout):
+        from calibre_plugins.aladin_co_kr.book_matching import mismatch
         # UNSUPPORTED_FORMATS = ['audiobook', 'other format', 'cd', 'item', 'see all formats & editions']
         # [국내도서], [외국도서], '[eBook]', '[알라딘굿즈]', '[커피]', '[음반]', '[DVD]', '[블루레이]'
         UNSUPPORTED_FORMATS = ['[ebook]', '[알라딘굿즈]', '[커피]', '[음반]', '[dvd]', '[블루레이]']
         
         results = self._search_result_nodes(root)
         if not results:
-            log.info('FOUND NO RESULTS:')
+            value = root.text_content()
+            if re.search(r'검색\s*결과가?\s*없|검색된\s*(?:상품|도서)가?\s*없', value):
+                log.info('책 없음: 검색 결과가 없습니다.')
+            else:
+                log.error('페이지 구조 변경: 검색 결과 영역을 확인할 수 없습니다.')
             return
-        
-        title_tokens = list(self.get_title_tokens(orig_title))
-        # by sseeookk, 20140315
-        # for korean author name
-        author_tokens = list(self.get_author_tokens(orig_authors))
-        # orig_authors_encode = None
-        # if orig_authors:
-        #     orig_authors_encode = list(a.encode('utf-8') for a in orig_authors)  # by sseeookk
-        # author_tokens = list(self.get_author_tokens(orig_authors_encode))
-        
-        def ismatch(_title, _authors):
-            _authors = lower(' '.join(_authors))
-            _title = lower(_title)
-            match = not title_tokens
-            for t in title_tokens:
-                if lower(t) in _title:
-                    match = True
-                    break
-            amatch = not author_tokens
-            for a in author_tokens:
-                if lower(a) in _authors:
-                    amatch = True
-                    break
-            if not author_tokens: amatch = True
-            return match and amatch
         
         import calibre_plugins.aladin_co_kr.config as cfg
         max_results = cfg.plugin_prefs[cfg.STORE_NAME][cfg.KEY_MAX_DOWNLOADS]
@@ -394,12 +386,8 @@ class Aladin_co_kr(Source):
             if title_nodes:
                 title = re.sub(r"\s{2,}", " ", title_nodes[0].text_content().strip())
             if not title:
-                log.info('Could not find title')
+                log.error('페이지 구조 변경: 검색 후보 제목을 찾을 수 없습니다.')
                 continue
-            # Strip off any series information from the title
-            if '(' in title:
-                # log.info('Stripping off series(')
-                title = title.rpartition('(')[0].strip()
             
             contributors = result.xpath('.//div[contains(@class, "ss_book_list")]//a[contains(@href,"AuthorSearch")]')
             authors = []
@@ -411,8 +399,11 @@ class Aladin_co_kr(Source):
             
             # log.info('Looking at tokens:',author)
             log.info('Considering search result: ', title, ",", '|'.join(authors))
-            if not ismatch(title, authors):
-                log.error('Rejecting as not close enough match: ', title, ",", '|'.join(authors))
+            reason = mismatch(orig_title, orig_authors, None, {'title': title, 'authors': authors})
+            if any(value in title.lower() for value in UNSUPPORTED_FORMATS):
+                reason = reason or '지원하지 않는 상품 형식'
+            if reason:
+                log.info('조건 불일치: 후보 제외: %s: %s' % (reason, title))
                 continue
             
             result_url = result.xpath('.//div[contains(@class, "ss_book_list")]//a/@href[contains(.,"wproduct.aspx?")]')
@@ -431,11 +422,16 @@ class Aladin_co_kr(Source):
                 break
     
     def download_cover(self, log, result_queue, abort, title=None, authors=None, identifiers={}, timeout=30):
+        from calibre_plugins.aladin_co_kr.request_budget import RequestBudget
+        from calibre_plugins.aladin_co_kr.cover_validation import MAX_BYTES, validate_cover
+        if abort.is_set() or timeout <= 0:
+            return
+        deadline = time.monotonic() + timeout
         cached_url = self.get_cached_cover_url(identifiers)
         if cached_url is None:
             log.info('No cached cover found, running identify')
             rq = Queue()
-            self.identify(log, rq, abort, title=title, authors=authors, identifiers=identifiers)
+            self.identify(log, rq, abort, title=title, authors=authors, identifiers=identifiers, timeout=timeout)
             if abort.is_set():
                 return
             results = []
@@ -453,13 +449,18 @@ class Aladin_co_kr(Source):
             log.info('No cover found')
             return
         
-        if abort.is_set():
+        remaining = deadline - time.monotonic()
+        if abort.is_set() or remaining <= 0:
             return
         br = self.browser
-        log('Downloading cover from:', cached_url)
+        log.info('Downloading cover from:', cached_url)
         try:
-            cdata = br.open_novisit(cached_url, timeout=timeout).read()
-            result_queue.put((self, cdata))
+            cdata, _ = RequestBudget(abort, timeout, deadline=deadline).read(br, cached_url, limit=MAX_BYTES)
+            validate_cover(cdata)
+            if not abort.is_set() and time.monotonic() < deadline:
+                result_queue.put((self, cdata))
+        except ValueError as error:
+            log.error('표지 제외: %s: %s' % (error, cached_url))
         except:
             log.exception('Failed to download cover from:', cached_url)
 

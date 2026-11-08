@@ -31,7 +31,8 @@ class Worker(Thread):  # Get details
     Get book details from Aladin book page in a separate thread
     """
     
-    def __init__(self, url, result_queue, browser, log, relevance, plugin, timeout=20):
+    def __init__(self, url, result_queue, browser, log, relevance, plugin, timeout=20,
+                 requested_title=None, requested_authors=None, requested_isbn=None, budget=None):
         Thread.__init__(self)
         self.daemon = True
         self.url, self.result_queue = url, result_queue
@@ -39,6 +40,11 @@ class Worker(Thread):  # Get details
         self.relevance, self.plugin = relevance, plugin
         self.browser = browser.clone_browser()
         self.cover_url = self.aladin_id = self.isbn = None
+        self.requested_title, self.requested_authors = requested_title, requested_authors
+        self.requested_isbn = requested_isbn
+        from threading import Event
+        from calibre_plugins.aladin_co_kr.request_budget import RequestBudget
+        self.budget = budget if budget is not None else RequestBudget(Event(), timeout)
         
         lm = {
             'eng': ('English', 'Englisch', 'ENG'),
@@ -65,22 +71,26 @@ class Worker(Thread):  # Get details
     
     def get_details(self):
         try:
-            raw = self.browser.open_novisit(self.url, timeout=self.timeout).read().strip()
+            raw, _ = self.budget.read(self.browser, self.url)
+            raw = raw.strip()
         except Exception as e:
             if callable(getattr(e, 'getcode', None)) and \
                     e.getcode() == 404:
-                self.log.error('URL malformed: %r' % self.url)
+                self.log.error('책 없음: 상품 페이지가 없습니다: %r' % self.url)
                 return
             attr = getattr(e, 'args', [None])
             attr = attr if attr else [None]
             if isinstance(attr[0], socket.timeout):
-                msg = 'Aladin timed out. Try again later.'
+                msg = '접속 실패: 알라딘 요청 시간 초과'
                 self.log.error(msg)
             else:
-                msg = 'Failed to make details query: %r' % self.url
+                msg = '접속 실패: 상품 상세 요청 실패: %r' % self.url
                 self.log.exception(msg)
             return
         
+        if not raw:
+            self.log.error('접속 실패: 빈 상세 응답: %r' % self.url)
+            return
         raw = raw.decode('utf-8', errors='replace')  # 00
         # raw = raw.decode('euc-kr', 'ignore')  # sseeookk python2
         
@@ -91,7 +101,7 @@ class Worker(Thread):  # Get details
         try:
             root = fromstring(clean_ascii_chars(raw))
         except:
-            msg = 'Failed to parse aladin details page: %r' % self.url
+            msg = '페이지 구조 변경: 상세 응답 파싱 실패: %r' % self.url
             self.log.exception(msg)
             return
         
@@ -106,7 +116,7 @@ class Worker(Thread):  # Get details
                 # search success : '[알라딘]나의 문화유산답사기 1 - 남도답사 일번지, 개정판'
                 # search fail : '[알라딘] "좋은 책을 고르는 방법, 알라딘"'
                 if page_title is None or page_title.find('좋은 책을 고르는 방법, 알라딘') > -1:
-                    self.log.error('Failed to see search results in page title: %r' % self.url)
+                    self.log.info('책 없음: 상품을 찾을 수 없습니다: %r' % self.url)
                     return
         except:
             msg = 'Failed to read aladin page title: %r' % self.url
@@ -116,7 +126,7 @@ class Worker(Thread):  # Get details
         errmsg = root.xpath('//*[@id="errorMessage"]')
         if errmsg:
             msg = 'Failed to parse aladin details page: %r' % self.url
-            msg += tostring(errmsg, method='text', encoding=unicode).strip()
+            msg += tostring(errmsg[0], method='text', encoding=unicode).strip()
             self.log.error(msg)
             return
         
@@ -142,7 +152,7 @@ class Worker(Thread):  # Get details
             authors = []
         
         if not title or not authors or not aladin_id:
-            self.log.error('Could not find title/authors/aladin id for %r' % self.url)
+            self.log.error('페이지 구조 변경: 제목·저자·상품 ID가 없습니다: %r' % self.url)
             self.log.error('aladin.co.kr: %r Title: %r Authors: %r' % (aladin_id, title, authors))
             return
         
@@ -159,6 +169,15 @@ class Worker(Thread):  # Get details
                 self.isbn = mi.isbn = isbn
         except:
             self.log.exception('Error parsing ISBN for url: %r' % self.url)
+
+        from calibre_plugins.aladin_co_kr.book_matching import mismatch
+        reason = mismatch(getattr(self, 'requested_title', None),
+                          getattr(self, 'requested_authors', None),
+                          getattr(self, 'requested_isbn', None),
+                          {'title': title, 'authors': authors, 'isbn': self.isbn})
+        if reason:
+            self.log.info('조건 불일치: 후보 제외: %s: %s' % (reason, self.url))
+            return
         
         try:
             mi.rating = self.parse_rating(root)
@@ -197,14 +216,15 @@ class Worker(Thread):  # Get details
         
         mi.source_relevance = self.relevance
         
+        self.plugin.clean_downloaded_metadata(mi)
+        if not self.budget.active():
+            return
         if self.aladin_id:
             if self.isbn:
                 self.plugin.cache_isbn_to_identifier(self.isbn, self.aladin_id)
             if self.cover_url:
                 self.plugin.cache_identifier_to_cover_url(self.aladin_id, self.cover_url)
         # self.log.info(mi)
-        self.plugin.clean_downloaded_metadata(mi)
-        
         self.result_queue.put(mi)
     
     def parse_aladin_id(self, url, root):
@@ -395,11 +415,12 @@ class Worker(Thread):  # Get details
                         return content_nodes[0]
 
     def _content_node_to_comments_html(self, node):
+        from calibre_plugins.aladin_co_kr.text_cleaner import clean_html
         if node is None or not node.text_content().strip():
             return ''
         self._removeTags(node, ["object", "script", "style", "iframe", "noscript"])
         html = tostring(node, method='html', encoding=unicode).strip()
-        html = sanitize_comments_html(html)
+        html = sanitize_comments_html(clean_html(html))
         return html.replace('<h2>Overview</h2>', '').strip()
 
     def _find_toc_html(self, root):
@@ -412,6 +433,7 @@ class Worker(Thread):  # Get details
         return ''
 
     def parse_comments(self, root):
+        from calibre_plugins.aladin_co_kr.text_cleaner import clean_html, content_key, decode_html, isbn_key
         # Aladin serves the rich book description blocks through getContents.aspx.
         # Keep the main synopsis first, then append optional Aladin-provided sections.
         names = ['Introduce', 'PublisherDesc']
@@ -434,7 +456,8 @@ class Worker(Thread):  # Get details
 
                 try:
                     self.browser.addheaders = [('Referer', self.url)]
-                    rawDesc = self.browser.open_novisit(urlDesc, timeout=self.timeout).read().strip()
+                    rawDesc, _ = self.budget.read(self.browser, urlDesc)
+                    rawDesc = rawDesc.strip()
                 except Exception as e:
                     if callable(getattr(e, 'getcode', None)) and e.getcode() == 404:
                         self.log.error('URL malformed: %r' % urlDesc)
@@ -453,8 +476,12 @@ class Worker(Thread):  # Get details
                     continue
 
                 try:
-                    rawDesc = rawDesc.decode('utf-8', errors='replace')
+                    rawDesc = decode_html(rawDesc)
                     rootDesc = fromstring(clean_ascii_chars(rawDesc))
+                    response_isbns = rootDesc.xpath('//meta[@property="books:isbn"]/@content')
+                    if response_isbns and isbn_key(response_isbns[0]) != isbn_key(self.isbn):
+                        self.log.error('조건 불일치: 다른 판본의 소개 응답을 제외합니다.')
+                        continue
                 except:
                     msg = 'Failed to parse aladin details page: %r' % urlDesc
                     self.log.exception(msg)
@@ -474,18 +501,23 @@ class Worker(Thread):  # Get details
         if 'comments' not in sections:
             description_node = root.xpath('//meta[@name="Description"]/@content')
             if description_node:
-                sections['comments'] = (None, sanitize_comments_html(description_node[0]))
+                sections['comments'] = (None, description_node[0])
 
         comments = ''
+        seen = set()
         for section_id, (heading, html) in sections.items():
-            if not html:
+            html = clean_html(html)
+            key = content_key(html) if html else ''
+            if not key or key in seen:
                 continue
+            seen.add(key)
             if heading:
                 comments += '<h3>[%s]</h3><div id="%s">%s</div>' % (heading, section_id, html)
             else:
                 comments += '<div id="comments">%s</div>' % html
 
-        if toc:
+        toc = clean_html(toc)
+        if toc and content_key(toc) not in seen:
             comments += '<h3>[목차]</h3><div id="toc">%s</div>' % toc
 
         if comments:
@@ -529,20 +561,10 @@ class Worker(Thread):  # Get details
                 # img_url = re.sub(r"_\d.jpg", "_f.jpg", img_url)
                 # img_url = re.sub(r"_\d.gif", "_f.jpg", img_url)
             
-            try:
-                # Unfortunately Aladin sometimes have broken links so we need to do
-                # an additional request to see if the URL actually exists
-                info = self.browser.open_novisit(img_url, timeout=self.timeout).info()
-                # if int(info.getheader('Content-Length')) > 1000:  # Python 2
-                if int(info.get('Content-Length')) > 1000:  # Python 3
-                    return img_url
-                else:
-                    self.log.warning('Broken image for url: %s' % img_url)
-            except:
-                # self.log.info(e)
-                self.log.info('parse_cover error!')
-                pass
-    
+            # Validate the actual download in download_cover; a preliminary GET
+            # duplicated traffic and leaked the response on large catalogues.
+            return img_url
+
     def parse_isbn(self, root):
         # isbn_nodes = root.xpath('//div[@class="p_goodstd03"]')
         # for isbn_node in isbn_nodes:

@@ -4,8 +4,12 @@ Set CALIBRE_CONFIG_DIRECTORY to a folder inside this repository before running.
 This script uses the real Calibre loader, browser, Metadata and HTML sanitizer.
 """
 import argparse
+import json
 import importlib.util
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from queue import Queue
 from threading import Event
@@ -23,14 +27,27 @@ def main():
     parser.add_argument('--isbn', default='9791124073483')
     parser.add_argument('--author', action='append', default=[], help='Author to include in title searches.')
     parser.add_argument('--allow-missing-toc', action='store_true', help='Some foreign titles have no YES24 table of contents.')
+    parser.add_argument('--report', type=Path, help='Write a JSON report for all requested stores.')
+    parser.add_argument('--timeout', type=float, default=30)
+    parser.add_argument('--isolated', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     configured = os.environ.get('CALIBRE_CONFIG_DIRECTORY')
-    if not configured or not Path(configured).resolve().is_relative_to(ROOT_DIR):
+    if not configured or (ROOT_DIR) not in Path(configured).resolve().parents:
         raise SystemExit('Set CALIBRE_CONFIG_DIRECTORY to a separate test folder inside this repository.')
+    if not args.isolated:
+        # A used config imports the previous ZIP before add_plugin can replace it.
+        # Start with an empty config so this run always tests the current build.
+        Path(configured).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='smoke-', dir=configured) as temporary:
+            env = dict(os.environ, CALIBRE_CONFIG_DIRECTORY=temporary)
+            result = subprocess.run([sys.executable, '-e', str(Path(__file__).resolve()), '--']
+                                    + sys.argv[1:] + ['--isolated'], env=env)
+        raise SystemExit(result.returncode)
 
     from calibre.constants import __version__, config_dir
     from calibre.customize.ui import add_plugin, metadata_plugins
-    from calibre.utils.logging import ThreadSafeLog
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from diagnostics import check_source
     if Path(config_dir).resolve() != Path(configured).resolve():
         raise SystemExit('Calibre is not using the requested test configuration.')
     names = []
@@ -42,30 +59,20 @@ def main():
         source = add_plugin(str(archive))
         names.append(source.name)
     print('Calibre', __version__, flush=True)
+    rows = []
     for source in metadata_plugins(['identify']):
-        if source.name not in names:
-            continue
-        for title, identifiers in ((args.title, {}), (None, {'isbn': args.isbn})):
-            q, log = Queue(), ThreadSafeLog()
-            source.identify(log, q, Event(), title=title, authors=args.author if title else None, identifiers=identifiers, timeout=30)
-            rows = []
-            while not q.empty():
-                rows.append(q.get_nowait())
-            mi = next((m for m in rows if m.isbn == args.isbn), None)
-            # Calibre's bundled interpreter can run with assertions disabled.
-            if mi is None:
-                raise RuntimeError('Expected metadata missing: %s %r' % (source.name, [(m.title, m.isbn) for m in rows]))
-            if not mi.authors or not mi.publisher or not mi.comments:
-                raise RuntimeError('Incomplete metadata: ' + source.name)
-            if not args.allow_missing_toc:
-                if '목차' not in mi.comments:
-                    raise RuntimeError('Missing table of contents: ' + source.name)
-            covers = Queue()
-            source.download_cover(log, covers, Event(), identifiers=mi.identifiers, timeout=30)
-            _, raw = covers.get_nowait()
-            if not raw.startswith((b'\xff\xd8', b'\x89PNG', b'RIFF', b'GIF')):
-                raise RuntimeError('Invalid cover: ' + source.name)
-            print(f'{source.name} {"title" if title else "ISBN"}: {mi.title} / {mi.isbn} / cover {len(raw)} bytes / OK', flush=True)
+        if source.name in names:
+            for row in check_source(source, args.title, args.author, args.isbn, args.timeout):
+                rows.append(row)
+                print('%s %s: %s (%s)' % (row['store'], row['mode'], row['status'], row['stage']), flush=True)
+    report = {'calibre': __version__, 'results': rows}
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    else:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not rows or any(row['status'] not in ('ok', 'partial_metadata') for row in rows):
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

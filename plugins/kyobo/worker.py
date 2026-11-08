@@ -5,9 +5,15 @@ from urllib.parse import urljoin, urlsplit
 
 from lxml.html import fromstring
 
-from .text_cleaner import decode_html, meta, safe_url
+from .text_cleaner import decode_html, meta, safe_url, text
+from .book_matching import isbn_key
 
 BASE = 'https://product.kyobobook.co.kr'
+
+
+def search_is_empty(raw):
+    value = text(fromstring(decode_html(raw)))
+    return bool(re.search(r'검색\s*결과가?\s*없|검색된\s*(?:상품|도서)가?\s*없|상품을\s*찾을\s*수\s*없', value))
 
 
 def mapping(value):
@@ -87,7 +93,47 @@ def parse_details(raw, url):
     match = re.search(r'/detail/(S\d{12})', meta(root, 'og:url') or url)
     if not match:
         raise ValueError('교보 상품 ID가 없습니다.')
+    requested = re.search(r'/detail/(S\d{12})', url)
+    if requested and requested[1] != match[1]:
+        raise ValueError('교보 상세 페이지 상품 ID가 요청과 일치하지 않습니다.')
     data = product_data(root, match[1])
+    return parse_product(data, match[1], meta(root, 'og:image'))
+
+
+def recover_details(url, fetch):
+    """Use the same product's public API if its HTML remains empty."""
+    parsed = urlsplit(url)
+    match = re.fullmatch(r'/detail/(S\d{12})', parsed.path)
+    if parsed.hostname != 'product.kyobobook.co.kr' or not match:
+        raise ValueError('교보 복구 대상 상품 URL이 올바르지 않습니다.')
+    product_id = match[1]
+    prefix = BASE + '/api/gw/pdt/v2/product/component/' + product_id
+    info = component(fetch(prefix + '/info'), 'info')
+    api_top = component(fetch(prefix + '/top'), 'top')
+    title = mapping(api_top.get('title'))
+    main, details = mapping(title.get('main')), mapping(api_top.get('info'))
+    if (info.get('saleCmdtId') != product_id or not isbn_key(info.get('cmdtCode'))
+            or not any(mapping(link).get('pid') == product_id for link in title.get('link') or [])):
+        raise ValueError('교보 복구 API의 상품 ID 또는 ISBN이 일치하지 않습니다.')
+    top = {'saleCmdtId': product_id, 'title': main.get('value'),
+           'authors': details.get('authors'), 'publisher': details.get('publisher'),
+           'reviewScore': details.get('review'), 'cmdtCode': info['cmdtCode'],
+           'saleCmdtDvsnCode': info.get('saleCmdtDvsnCode')}
+    summary = {'basicInfo': {'isbn': info['cmdtCode']},
+               'intro': {'categoriList': [{'bookCategory': main.get('category') or []}]}}
+    cover = 'https://contents.kyobobook.co.kr/sih/fit-in/1000x0/pdt/%s.jpg' % info['cmdtCode']
+    return parse_product({'top': top, 'summary': summary}, product_id, cover)
+
+
+def component(raw, name):
+    response = json.loads(raw)
+    data = mapping(mapping(response).get('data')).get(name)
+    if mapping(response).get('error') or not isinstance(data, dict):
+        raise ValueError('교보 %s API 응답 형식이 올바르지 않습니다.' % name)
+    return data
+
+
+def parse_product(data, product_id, cover):
     top, summary = data['top'], mapping(data.get('summary'))
     basic = mapping(summary.get('basicInfo'))
     intro = mapping(summary.get('intro'))
@@ -109,13 +155,14 @@ def parse_details(raw, url):
     language = basic.get('language')
     if not language and top.get('saleCmdtDvsnCode') == 'KOR':
         language = '한국어'
-    cover = safe_url(meta(root, 'og:image'))
+    cover = safe_url(cover)
     if 'contents.kyobobook.co.kr/sih/fit-in/' in cover:
         cover = re.sub(r'/fit-in/\d+x\d+/', '/fit-in/1000x0/', cover)
     score = mapping(top.get('reviewScore')).get('score')
     isbn_match = re.search(r'(?<!\d)(?:97[89]\d{10}|\d{9}[\dXx])(?!\d)', str(basic.get('isbn') or top.get('cmdtCode') or ''))
     return {
-        'id': match[1], 'title': top.get('title', ''),
+        'id': product_id, 'title': top.get('title', ''),
+        'format': top.get('saleCmdtDvsnCode', ''),
         'authors': list(dict.fromkeys(a for a in authors if a)),
         # Foreign editions can display both ISBN-13 and ISBN-10 in one field.
         'isbn': isbn_match.group(0) if isbn_match else None,
@@ -129,10 +176,9 @@ def parse_details(raw, url):
 
 def enrich(book, fetch):
     url = BASE + '/api/gw/pdt/v2/product/component/' + book['id'] + '/middle'
-    response = json.loads(fetch(url))
-    middle = (response.get('data') or {}).get('middle')
-    if response.get('error') or not isinstance(middle, dict):
-        raise ValueError('교보 추가 도서정보 API 응답 형식이 올바르지 않습니다.')
+    middle = component(fetch(url), 'middle')
+    if middle.get('saleCmdtId') not in (None, book['id']):
+        raise ValueError('교보 추가 도서정보의 상품 ID가 일치하지 않습니다.')
     authors = '\n\n'.join(a['name'] + '\n' + a['intro'] for a in middle.get('authorInfoList') or [] if a.get('name') and a.get('intro'))
     book['sections'].extend([('저자소개', authors), ('출판사 리뷰', middle.get('pubReview')),
                              ('목차', middle.get('contentTableList'))])

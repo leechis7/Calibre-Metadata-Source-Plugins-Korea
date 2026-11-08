@@ -5,6 +5,20 @@ worker = load_adapter('yes24')
 
 
 class YES24Tests(unittest.TestCase):
+    def test_recommended_book_json_does_not_supply_the_main_introduction(self):
+        raw = '''<html><script type="application/ld+json">[
+          {"@type":"Book","sku":"999","name":"다른 책","description":"다른 책 소개"},
+          {"@type":"Book","sku":"125557465","name":"요청한 책","description":"올바른 소개"}
+        ]</script></html>'''
+        book = worker.parse_details(raw, 'https://www.yes24.com/Product/Goods/125557465')
+        self.assertEqual(dict(book['sections'])['책소개'], '올바른 소개')
+        self.assertEqual(book['title'], '요청한 책')
+
+    def test_canonical_product_mismatch_is_rejected(self):
+        raw = '<meta property="og:url" content="https://www.yes24.com/Product/Goods/999">'
+        with self.assertRaises(ValueError):
+            worker.parse_details(raw, 'https://www.yes24.com/Product/Goods/125557465')
+
     def test_real_structure_search(self):
         self.assertEqual(worker.search_results(fixture('yes24_search.html')), ['https://www.yes24.com/Product/Goods/125557465'])
 

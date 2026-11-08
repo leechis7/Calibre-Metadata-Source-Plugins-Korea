@@ -1,0 +1,142 @@
+{
+  "data": {
+    "top": {
+      "title": {
+        "main": {
+          "labels": [],
+          "alias": null,
+          "value": "트렌드 코리아 2027",
+          "category": [
+            {
+              "label": "국내도서",
+              "code": null,
+              "separator": "KOR",
+              "dsplMenuNum": null,
+              "menuLvl": null
+            },
+            {
+              "label": "경제/경영",
+              "code": "13",
+              "separator": "KOR",
+              "dsplMenuNum": null,
+              "menuLvl": null
+            },
+            {
+              "label": "경제일반",
+              "code": "1309",
+              "separator": "KOR",
+              "dsplMenuNum": null,
+              "menuLvl": null
+            },
+            {
+              "label": "경제전망",
+              "code": "130911",
+              "separator": "KOR",
+              "dsplMenuNum": null,
+              "menuLvl": null
+            }
+          ]
+        },
+        "sub": {
+          "sbttName1": "2027 대한민국 소비트렌드 전망",
+          "sbttName2": null,
+          "ednDscrCode": null,
+          "nmed": null,
+          "ednName": null,
+          "bkbnShpCode": null,
+          "bkbnShpCodeName": null,
+          "volume": 1,
+          "splmCntt": null,
+          "mrchSbttName": null,
+          "clstMdSbttMemo": null
+        },
+        "link": [
+          {
+            "pid": "S000221151022",
+            "name": "국내도서",
+            "price": 19800,
+            "priceText": "",
+            "rentPid": null,
+            "sam": false,
+            "cmdtRltsPatrName": null
+          },
+          {
+            "pid": null,
+            "name": "외국도서",
+            "price": 0,
+            "priceText": "",
+            "rentPid": null,
+            "sam": false,
+            "cmdtRltsPatrName": null
+          },
+          {
+            "pid": "E000013660023",
+            "name": "eBook",
+            "price": 13860,
+            "priceText": "",
+            "rentPid": null,
+            "sam": false,
+            "cmdtRltsPatrName": null
+          }
+        ]
+      },
+      "info": {
+        "title": {
+          "main": null,
+          "srsName1": null,
+          "srsName2": null,
+          "srsVlmNumb": null
+        },
+        "authors": [
+          {
+            "role": {
+              "roleCode": "001",
+              "roleCodeName": "저자(글)"
+            },
+            "info": [
+              {
+                "chrcCode": "1000698301",
+                "chrcName": "김난도",
+                "validAuthor": true
+              }
+            ]
+          }
+        ],
+        "publisher": {
+          "label": {
+            "text": "미래의창",
+            "id": "PB13363"
+          },
+          "pubDate": "20260930",
+          "fstDate": "20260930",
+          "viewFstDate": false,
+          "digitalPublisher": null
+        },
+        "weeklyBest": [
+          {
+            "label": "국내도서",
+            "rank": 6
+          },
+          {
+            "label": "경제/경영",
+            "rank": 2
+          }
+        ],
+        "review": {
+          "text": "도움돼요",
+          "verified": true,
+          "score": 9.7,
+          "count": 184,
+          "emoticonAvg": 52
+        },
+        "culture": null,
+        "openMarket": null,
+        "pod": null,
+        "combAuthor": null,
+        "saleCmdtDsplDvsnCode": "TOT",
+        "digitalPublisher": null
+      }
+    }
+  },
+  "error": null
+}

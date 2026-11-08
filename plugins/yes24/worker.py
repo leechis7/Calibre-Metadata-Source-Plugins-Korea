@@ -10,6 +10,11 @@ from .text_cleaner import decode_html, first_text, meta, safe_url, text
 BASE = 'https://www.yes24.com'
 
 
+def search_is_empty(raw):
+    value = text(fromstring(decode_html(raw)))
+    return bool(re.search(r'검색\s*결과가?\s*없|검색된\s*(?:상품|도서)가?\s*없|상품을\s*찾을\s*수\s*없', value))
+
+
 def valid_id(value):
     return bool(re.fullmatch(r'\d+', value))
 
@@ -35,18 +40,31 @@ def search_results(raw):
     return result
 
 
-def book_json(root):
+def book_json(root, product_id=None):
+    unbound = []
     for raw in root.xpath('//script[@type="application/ld+json"]/text()'):
         try:
             value = json.loads(raw)
         except ValueError:
             continue
+        if not isinstance(value, (dict, list)):
+            continue
         values = value if isinstance(value, list) else value.get('@graph', [value])
         for item in values:
+            if not isinstance(item, dict):
+                continue
             types = item.get('@type', [])
             if 'Book' in (types if isinstance(types, list) else [types]):
-                return item
-    return {}
+                item_id = str(item.get('sku') or '')
+                match = re.search(r'/product/goods/(\d+)', str(item.get('url') or ''), re.I)
+                ids = {item_id} if item_id else set()
+                if match:
+                    ids.add(match[1])
+                if not product_id or ids == {product_id}:
+                    return item
+                if not ids:
+                    unbound.append(item)
+    return unbound[0] if len(unbound) == 1 else {}
 
 
 def section(root, id_):
@@ -64,9 +82,12 @@ def section(root, id_):
 
 def parse_details(raw, url):
     root = fromstring(decode_html(raw))
-    data = book_json(root)
     canonical = meta(root, 'og:url') or url
     match = re.search(r'/product/goods/(\d+)', canonical, re.I)
+    requested = re.search(r'/product/goods/(\d+)', url, re.I)
+    if requested and match and requested[1] != match[1]:
+        raise ValueError('YES24 상세 페이지 상품 ID가 요청과 일치하지 않습니다.')
+    data = book_json(root, match[1] if match else None)
     title = first_text(root, '//h2[contains(@class,"gd_name")]') or data.get('name', '')
     author = data.get('author', [])
     if isinstance(author, dict):
@@ -103,6 +124,7 @@ def parse_details(raw, url):
     langs = {'ko': 'kor', 'en': 'eng', 'ja': 'jpn', 'zh': 'zho', 'de': 'deu', 'fr': 'fra'}
     return {
         'id': match[1] if match else None, 'title': title,
+        'format': data.get('bookFormat', ''),
         'authors': list(dict.fromkeys(a.strip() for a in authors if a.strip())),
         'isbn': data.get('isbn') or meta(root, 'books:isbn'),
         'publisher': publisher or first_text(root, '//span[contains(@class,"gd_pub")]/a'),

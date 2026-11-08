@@ -23,7 +23,7 @@ try:
     import qt.core as QtGui
 except ImportError:
     try:
-        from PyQt5 import QtGui
+        import PyQt5.Qt as QtGui
         from PyQt5.Qt import (
             Qt, QIcon, QPixmap, QLabel, QDialog, QHBoxLayout,
             QTableWidgetItem, QFont, QLineEdit, QComboBox,
@@ -320,14 +320,14 @@ class ReadOnlyTableWidgetItem(QTableWidgetItem):
     def __init__(self, text):
         if text is None:
             text = ''
-        QTableWidgetItem.__init__(self, text, QtGui.QTableWidgetItem.UserType)
+        QTableWidgetItem.__init__(self, text, 1000)
         self.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
 
 
 class RatingTableWidgetItem(QTableWidgetItem):
     
     def __init__(self, rating, is_read_only=False):
-        QTableWidgetItem.__init__(self, '', QtGui.QTableWidgetItem.UserType)
+        QTableWidgetItem.__init__(self, '', 1000)
         self.setData(Qt.DisplayRole, rating)
         if is_read_only:
             self.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
@@ -339,10 +339,10 @@ class DateTableWidgetItem(QTableWidgetItem):
         if (date_read == UNDEFINED_DATE) and default_to_today:
             date_read = now()
         if is_read_only:
-            QTableWidgetItem.__init__(self, format_date(date_read, fmt), QtGui.QTableWidgetItem.UserType)
+            QTableWidgetItem.__init__(self, format_date(date_read, fmt), 1000)
             self.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
         else:
-            QTableWidgetItem.__init__(self, '', QtGui.QTableWidgetItem.UserType)
+            QTableWidgetItem.__init__(self, '', 1000)
             dt = UNDEFINED_QDATETIME if date_read is None else QDateTime(date_read)
             self.setData(Qt.DisplayRole, dt)
 

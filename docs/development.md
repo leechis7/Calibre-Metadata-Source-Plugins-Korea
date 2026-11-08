@@ -3,7 +3,7 @@
 ## 요구 사항
 
 - Git과 Python. 일반 ZIP 빌드의 최소 버전은 Python 3.8이며, 개발에는 CI와 같은 Python 3.11을 권장합니다.
-- 회귀 테스트에는 `requirements-dev.txt`의 lxml·mechanize가 필요합니다.
+- 회귀 테스트에는 `requirements-dev.txt`의 lxml·mechanize·Pillow가 필요합니다.
 - 실제 플러그인 검사는 설치된 Calibre의 `calibre-debug`로 실행합니다. 일반 Python과 별도 런타임입니다.
 
 Calibre 플러그인은 Python 패키지를 pip로 배포하는 대신 ZIP으로 설치합니다. 빌드한 ZIP에는 서점별 코드와 공통 코드가 함께 들어가며, 설치 후 런타임 의존성은 Calibre가 제공합니다.
@@ -87,6 +87,15 @@ SHA256SUMS.txt
 python -m unittest discover -s tests -v
 ```
 
+Calibre가 설치된 환경에서는 빌드한 세 ZIP을 실제 로더·Metadata로 검사하는 오프라인 회귀 검사도 실행할 수 있습니다. 이 검사는 합성 HTTP 응답을 사용하며 서점에는 접속하지 않습니다. 별도 설정 폴더에 테스트용 플러그인을 설치합니다.
+
+```sh
+python scripts/build.py
+CALIBRE_CONFIG_DIRECTORY="$PWD/.dev-deps/calibre-offline-settings" calibre-debug -e scripts/regression_calibre.py
+```
+
+검사 사례와 최근 실행 결과는 [검증 기록](validation.md)을 참고하세요.
+
 실시간 HTTP 검사에는 인터넷 연결이 필요합니다. 상품 정보·사이트 상태에 따라 실패할 수 있어 CI에서는 자동 실행하지 않습니다.
 
 ```sh
@@ -130,3 +139,9 @@ CALIBRE_CONFIG_DIRECTORY="$PWD/.dev-deps/calibre-smoke-settings" calibre-debug -
 - 서점에 책이 없음: 해당 서점의 상품 페이지를 확인합니다. 다른 서점에서 찾았더라도 같은 책이 등록돼 있다고 단정할 수 없습니다.
 - 로그의 플러그인 버전이 오래됨: 사용하는 Calibre 설정에 ZIP을 설치하고 앱을 완전히 종료했다가 재시작합니다.
 - 빈 응답·사이트 구조 변경: 서점 URL, ISBN, 발생 시점과 로그를 첨부해 버그를 신고합니다.
+
+## 수동 서점 진단과 호환성 검사
+
+`python scripts/smoke.py --report .dev-deps/live-report.json`은 빌드한 ZIP을 실제 Calibre로 설치해 세 서점의 제목·ISBN 검색과 표지를 검사합니다. 교보 API 복구도 실제 플러그인과 같은 경로로 실행합니다. 첫 실패 후에도 나머지 검사를 계속하고 JSON에 서점·단계·관찰된 실패 분류·누락 필드·로그를 남깁니다. `partial_metadata`는 서점이 제공하지 않는 소개·목차 등의 경고이며, 장애나 파서 오류로 단정하지 않습니다. `unknown_failure`와 `mixed_failure`는 추가 확인이 필요한 상태입니다. 이 검사는 수동 실행이며 자동 일정은 만들지 않습니다.
+
+`calibre-debug -e scripts/compat_calibre.py`는 임시 설정과 빈 임시 서재에서 세 ZIP의 설치·설정 UI 생성·옵션 변경·저장·새 프로세스에서 설정 유지를 확인합니다. 사용자 서재는 열지 않습니다. GitHub Actions는 최소 Calibre 5.0.0 및 실행 시점의 최신 공식 Calibre에서 이 검사와 오프라인 검색·표지 회귀 검사를 수행하며, 두 버전의 성공을 릴리스 조건으로 사용합니다.

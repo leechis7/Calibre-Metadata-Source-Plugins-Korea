@@ -26,7 +26,7 @@ try:
     import qt.core as QtGui
 except ImportError:
     try:
-        from PyQt5 import QtGui
+        import PyQt5.Qt as QtGui
         from PyQt5.Qt import (
             QLabel, QTableWidgetItem, QVBoxLayout, Qt, QGroupBox, QTableWidget,
             QCheckBox, QAbstractItemView, QHBoxLayout, QIcon, QInputDialog, QSpinBox

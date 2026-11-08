@@ -1,11 +1,14 @@
 """Pure parsing helpers shared by independently packaged sources (GPL-3.0)."""
 import gzip
 import re
+import unicodedata
 from datetime import datetime, timezone
 from html import escape
 from urllib.parse import urlsplit
 
 from lxml.html import fragment_fromstring, tostring
+
+from .book_matching import isbn_key
 
 
 def decode_html(raw):
@@ -43,14 +46,22 @@ def safe_url(url):
 
 
 def clean_html(value):
-    if not value or not str(value).strip():
+    if not isinstance(value, str) or not value.strip():
         return ''
-    value = str(value)
+    if value.strip() in ('$undefined', 'undefined', 'null', 'None'):
+        return ''
     if not re.search(r'<[a-zA-Z][^>]*>', value):
-        return '<p>' + escape(value).replace('\n', '<br/>') + '</p>'
+        value = '<p>' + escape(value).replace('\n', '<br/>') + '</p>'
     root = fragment_fromstring(value, create_parent='div')
-    for bad in root.xpath('.//script|.//style|.//iframe|.//object|.//form|.//button|.//input|.//textarea|.//noscript'):
+    for bad in root.xpath('.//script|.//style|.//iframe|.//object|.//form|.//button|.//input|.//textarea|.//noscript|.//*[@hidden or @aria-hidden="true"]'):
         bad.drop_tree()
+    controls = {'더보기', '접기', '펼치기', '내용 더보기', '책소개 펼치기', '책소개 접기', '이미지 확대보기'}
+    for node in list(root.iterdescendants()):
+        if node.getparent() is None:
+            continue
+        style = re.sub(r'\s+', '', node.get('style', '')).lower()
+        if 'display:none' in style or 'visibility:hidden' in style or text(node) in controls:
+            node.drop_tree()
     for node in root.iter():
         for key in list(node.attrib):
             if key not in ('href', 'src', 'alt', 'title'):
@@ -61,16 +72,28 @@ def clean_html(value):
                     node.attrib[key] = url
                 else:
                     del node.attrib[key]
+    visible = text(root)
+    if not visible or '\ufffd' in visible or '占쏙옙' in visible:
+        return ''
     return tostring(root, encoding='unicode', method='html')
+
+
+def content_key(value):
+    """Compare visible content, ignoring wrapper tags and whitespace."""
+    root = fragment_fromstring(value, create_parent='div')
+    return re.sub(r'\s+', '', unicodedata.normalize('NFKC', text(root))).casefold()
 
 
 def comments(sections, append_toc=True):
     result = []
+    seen = set()
     for heading, value in sections:
         if heading == '목차' and not append_toc:
             continue
         html = clean_html(value)
-        if html:
+        key = content_key(html) if html else ''
+        if key and key not in seen:
+            seen.add(key)
             result.append('<h3>%s</h3>%s' % (escape(heading), html))
     return ''.join(result)
 
@@ -86,11 +109,3 @@ def parse_date(value):
 
 def normalized(value):
     return re.sub(r'[^\w]', '', str(value or '')).casefold()
-
-
-def isbn_key(value):
-    value = re.sub(r'[^\dXx]', '', str(value or '')).upper()
-    if len(value) == 10:
-        value = '978' + value[:9]
-        value += str((-sum(int(c) * (1 if i % 2 == 0 else 3) for i, c in enumerate(value))) % 10)
-    return value

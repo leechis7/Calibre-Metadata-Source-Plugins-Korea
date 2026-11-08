@@ -26,9 +26,44 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           python -c "import sys; sys.path.insert(0, 'scripts'); from build import ROOT_DIR, PLUGIN_CONFIGS, get_plugin_version; assert all('v' + get_plugin_version(ROOT_DIR / 'plugins' / k / '__init__.py') == '${{ github.ref_name }}' for k in PLUGIN_CONFIGS)"
+  compatibility:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        calibre: ['5.0.0', 'latest']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/build.py
+      - name: Install isolated Calibre runtime
+        env:
+          CALIBRE_VERSION: ${{ matrix.calibre }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0 libxcb-cursor0 libnss3 libxcomposite1 libxdamage1 libxrandr2 libasound2
+          version="$CALIBRE_VERSION"
+          if [ "$version" = latest ]; then
+            version=$(gh api repos/kovidgoyal/calibre/releases/latest --jq '.tag_name | ltrimstr("v")')
+          fi
+          mkdir -p "$RUNNER_TEMP/calibre"
+          curl --fail --location --retry 3 "https://download.calibre-ebook.com/$version/calibre-$version-x86_64.txz" -o "$RUNNER_TEMP/calibre.txz"
+          tar -xJf "$RUNNER_TEMP/calibre.txz" -C "$RUNNER_TEMP/calibre"
+          echo "$RUNNER_TEMP/calibre" >> "$GITHUB_PATH"
+      - name: Install, search, cover and settings persistence
+        env:
+          CALIBRE_CONFIG_DIRECTORY: ${{ github.workspace }}/.dev-deps/compat-settings
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          calibre-debug --version
+          calibre-debug -e scripts/regression_calibre.py
+          calibre-debug -e scripts/compat_calibre.py
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, compatibility]
     runs-on: ubuntu-latest
     permissions:
       contents: write
