@@ -4,11 +4,11 @@ Calibre에서 **알라딘·YES24·교보문고**의 도서 메타데이터와 �
 
 ## 설치
 
-| 서점 | Calibre 표시 이름 | v1.2.4 설치 파일 |
+| 서점 | Calibre 표시 이름 | v1.2.5 설치 파일 |
 | --- | --- | --- |
-| 알라딘 | `Aladin.co.kr` | [Aladin ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.4/Calibre-Metadata-Plugin-Aladin-v1.2.4.zip) |
-| YES24 | `YES24.com` | [YES24 ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.4/Calibre-Metadata-Plugin-YES24-v1.2.4.zip) |
-| 교보문고 | `Kyobobook.co.kr` | [Kyobo ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.4/Calibre-Metadata-Plugin-Kyobo-v1.2.4.zip) |
+| 알라딘 | `Aladin.co.kr` | [Aladin ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.5/Calibre-Metadata-Plugin-Aladin-v1.2.5.zip) |
+| YES24 | `YES24.com` | [YES24 ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.5/Calibre-Metadata-Plugin-YES24-v1.2.5.zip) |
+| 교보문고 | `Kyobobook.co.kr` | [Kyobo ZIP](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases/download/v1.2.5/Calibre-Metadata-Plugin-Kyobo-v1.2.5.zip) |
 
 다른 버전과 변경 내용은 [Releases](https://github.com/leechis7/Calibre-Metadata-Source-Plugins-Korea/releases)와 [CHANGELOG.md](CHANGELOG.md)에서 확인하세요.
 
@@ -18,7 +18,7 @@ Calibre에서 **알라딘·YES24·교보문고**의 도서 메타데이터와 �
 4. `환경설정 → 메타데이터 다운로드`에서 사용할 소스와 옵션을 설정합니다.
 5. 도서의 `메타데이터 편집 → 메타데이터 다운로드`를 실행합니다.
 
-최소 Calibre 버전은 5.0.0이며 실제 런타임 검증은 Portable Calibre 9.15.0에서 수행했습니다. YES24·교보 설정은 Calibre 기본 UI를 사용합니다. 알라딘의 표시 이름, `aladin.co.kr` 식별자와 `plugins/Aladin` 설정 저장소는 유지해 업데이트할 수 있습니다.
+최소 Calibre 버전은 5.0.0입니다. 배포 검사는 최소 버전과 최신 공식 버전에서 설치·검색·표지·설정 저장 및 재시작 후 유지를 확인합니다. 검증 버전과 결과는 [검증 기록](docs/validation.md)에 있습니다. YES24·교보 설정은 Calibre 기본 UI를 사용합니다. 알라딘의 표시 이름, `aladin.co.kr` 식별자와 `plugins/Aladin` 설정 저장소는 유지해 업데이트할 수 있습니다.
 
 ## 지원 기능
 
@@ -32,9 +32,9 @@ Calibre에서 **알라딘·YES24·교보문고**의 도서 메타데이터와 �
 
 YES24는 국내·외국도서 통합 검색을 사용합니다. YES24·교보는 최대 결과 수, 목차 포함과 분류 태그 사용 여부를 설정할 수 있습니다. ISBN-10/13의 같은 판본을 확인하며, ISBN 없이 검색할 때는 제목·저자를 비교합니다.
 
-개발 중인 변경에서는 세 서점의 판본 비교를 통일합니다. ISBN을 지정하면 체크섬과 ISBN-10/13 변환으로 같은 판본인지 확인하며, 결과가 없더라도 ISBN 조건을 버리지 않습니다. ISBN 없이 검색하면 제목·저자와 명시된 전자책·오디오북·개정판·세트 표기를 비교합니다. 서점이 판본 정보를 생략하면 완전한 구분은 어려우므로 정확한 판본에는 ISBN 검색을 권장합니다. 로그에는 후보 제외 이유와 책 없음·접속 실패·페이지 구조 변경을 구분해 표시합니다.
+세 서점에 같은 판본 비교 규칙을 적용합니다. ISBN을 지정하면 체크섬과 ISBN-10/13 변환으로 같은 판본인지 확인하며, 결과가 없더라도 ISBN 조건을 버리지 않습니다. ISBN 없이 검색하면 제목·저자·권수와 명시된 전자책·오디오북·개정판·세트 표기를 비교합니다. 서점이 판본 정보를 생략하면 완전한 구분은 어려우므로 정확한 판본에는 ISBN 검색을 권장합니다. 로그에는 후보 제외 이유와 책 없음·접속 실패·페이지 구조 변경을 구분해 표시합니다.
 
-개발 버전은 교보 상세 페이지가 빈 응답을 반환하면 같은 상품의 API로 정보를 복구합니다. API가 책소개를 제공하지 않으면 해당 섹션은 생략합니다. 소개문의 숨김 문구·중복 섹션·깨진 글자를 걸러내며, 표지는 JPEG·PNG·GIF·WebP의 실제 디코딩과 크기를 검사합니다. 가로·세로 각각 64px 이상, 4천만 화소 이하, 20 MiB 이하의 정상 이미지만 반환합니다.
+교보 상세 페이지가 빈 응답을 반환하면 같은 상품의 API로 정보를 복구합니다. API가 책소개를 제공하지 않으면 해당 섹션은 생략합니다. 소개문의 숨김 문구·중복 섹션·깨진 글자를 걸러내며, 표지는 JPEG·PNG·GIF·WebP의 실제 디코딩과 크기를 검사합니다. 가로·세로 각각 64px 이상, 4천만 화소 이하, 20 MiB 이하의 정상 이미지만 반환합니다.
 
 서점에 등록되지 않은 도서와 제공하지 않는 항목은 가져올 수 없습니다. 저자소개의 한국어·영어 혼합 문구 등 서점 원문의 내용이 그대로 포함될 수 있습니다. 교보의 추가 정보 API가 실패하더라도 기본 도서정보는 반환합니다.
 
@@ -55,7 +55,7 @@ python scripts/release.py  # 로컬 빌드와 업로드 계획만 표시
 
 `dist/`에 독립 ZIP 세 개와 `SHA256SUMS.txt`가 생성됩니다. 각 ZIP에는 해당 서점 코드·공통 모듈·라이선스가 포함됩니다. 실행 의존성은 Calibre가 제공합니다.
 
-GitHub Actions는 `main` push·PR에서 테스트와 빌드를 실행합니다. **`v*` 태그를 push하면 검사 후 공개 Release가 자동 생성됩니다.** 에이전트가 작업할 때 push·태그 push·릴리즈 배포는 저장소 소유자의 사전 승인을 받습니다.
+GitHub Actions는 `main` push·PR에서 테스트·빌드 및 최소/최신 Calibre 호환성 검사를 실행합니다. **`v*` 태그를 push하면 검사 후 공개 Release가 자동 생성됩니다.** 에이전트가 작업할 때 push·태그 push·릴리즈 배포는 저장소 소유자의 사전 승인을 받습니다.
 
 ## 문제 신고
 

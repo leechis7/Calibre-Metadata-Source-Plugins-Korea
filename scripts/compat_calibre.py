@@ -63,6 +63,10 @@ def main():
             if source.name not in names:
                 continue
             found.add(source.name)
+            store = {'Aladin.co.kr': 'aladin', 'YES24.com': 'yes24', 'Kyobobook.co.kr': 'kyobo'}[source.name]
+            expected_version = get_plugin_version(ROOT / 'plugins' / store / '__init__.py')
+            if '.'.join(map(str, source.version)) != expected_version:
+                raise RuntimeError('Wrong installed version: ' + source.name)
             if source.name == 'Aladin.co.kr':
                 cfg = importlib.import_module('calibre_plugins.aladin_co_kr.config')
                 prefs = cfg.plugin_prefs[cfg.STORE_NAME]

@@ -6,7 +6,7 @@ from calibre_plugins.kyobobook_co_kr.config import OPTIONS
 class Kyobo(KoreanBookSource):
     name = 'Kyobobook.co.kr'
     description = '교보문고에서 도서 메타데이터와 표지를 가져옵니다.'
-    version = (1, 2, 4)
+    version = (1, 2, 5)
     namespace = 'kyobobook_co_kr'
     identifier = 'kyobobook.co.kr'
     referer = 'https://www.kyobobook.co.kr/'

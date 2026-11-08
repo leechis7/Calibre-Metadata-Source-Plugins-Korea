@@ -6,7 +6,7 @@ from calibre_plugins.yes24_com.config import OPTIONS
 class YES24(KoreanBookSource):
     name = 'YES24.com'
     description = 'YES24에서 도서 메타데이터와 표지를 가져옵니다.'
-    version = (1, 2, 4)
+    version = (1, 2, 5)
     namespace = 'yes24_com'
     identifier = 'yes24.com'
     detail_url = 'https://www.yes24.com/Product/Goods/{id}'

@@ -69,6 +69,17 @@ class CatalogTests(unittest.TestCase):
                 self.assertFalse(browser.calls)
                 self.assertIn('유효하지 않은 ISBN', str(log.errors))
 
+    def test_cancel_after_parsing_never_publishes_or_caches(self):
+        for store in self.stores:
+            with self.subTest(store=store):
+                source, browser, _, query = self.source(store, *BOOKS[0][1:4])
+                abort, queue, log = Event(), Queue(), Log()
+                browser.routes[source.create_query(log, identifiers={'isbn': '9788936434267'})] = browser.routes[query]
+                with patch.object(source, 'clean_downloaded_metadata', side_effect=lambda mi: abort.set()):
+                    source.identify(log, queue, abort, identifiers={'isbn': '9788936434267'})
+                self.assertTrue(queue.empty())
+                self.assertIsNone(source.cached_isbn_to_identifier('9788936434267'))
+
     def test_cancel_during_detail_never_publishes_or_caches(self):
         for store in self.stores:
             with self.subTest(store=store):
