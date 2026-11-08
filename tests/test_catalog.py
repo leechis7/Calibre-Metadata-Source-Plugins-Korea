@@ -1,4 +1,5 @@
 """Catalogue cases also run against the real loader via regression_calibre.py."""
+from io import BytesIO
 from queue import Queue
 from threading import Event
 import unittest
@@ -188,7 +189,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_missing_product_and_changed_detail_have_distinct_logs(self):
         for store in self.stores:
-            for response, expected in ((HTTPError('https://example.test', 404, 'missing', {}, None), '책 없음'),
+            for response, expected in ((HTTPError('https://example.test', 404, 'missing', {}, BytesIO()), '책 없음'),
                                        (b'<html><p>new layout</p></html>', '페이지 구조 변경')):
                 with self.subTest(store=store, expected=expected):
                     source, browser, url, _ = self.source(store, *BOOKS[0][1:4])

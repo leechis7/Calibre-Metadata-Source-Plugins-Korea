@@ -1,3 +1,4 @@
+from io import BytesIO
 import socket
 from threading import Event
 import unittest
@@ -24,7 +25,7 @@ class RequestBudgetTests(unittest.TestCase):
 
     def test_permanent_http_error_does_not_retry(self):
         browser = Browser({})
-        with patch.object(browser, 'open_novisit', side_effect=HTTPError('url', 404, 'missing', {}, None)) as request:
+        with patch.object(browser, 'open_novisit', side_effect=HTTPError('url', 404, 'missing', {}, BytesIO())) as request:
             with self.assertRaises(HTTPError):
                 RequestBudget(Event(), 3).read(browser, 'url')
         self.assertEqual(request.call_count, 1)
